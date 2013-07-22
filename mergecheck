@@ -1,0 +1,84 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+
+use Cwd;
+use Git::Repository 'Log';
+use Try::Tiny;
+use Data::Dumper;
+
+my $dir = getcwd;
+my $r = Git::Repository->new( git_dir => "$dir/.git" );
+
+my $output;
+my $current_branch;
+
+if ($ARGV[0]) {
+	$current_branch = $ARGV[0];
+} else {
+	try {
+		$output = $r->run( status => '' );
+	} catch {
+		die "Can't git status\n";
+	};
+	
+	unless ($output =~ /On branch\s+(\S+)\s+/) {
+		die "Can't identify a branch\n";
+	}
+	$current_branch = $1;
+}
+$output = $r->run( branch => '--list');
+unless (grep(/^$current_branch$/, split(/\s+/, $output))) {
+	die "Can't find local branch $current_branch\n";
+}
+my $current_remote_branch = "origin/$current_branch";
+$output = $r->run( branch => '-r');
+unless (grep(/^$current_remote_branch$/, split(/\s+/, $output))) {
+	die "Can't find remote branch $current_remote_branch\n";
+}
+$output = $r->run( 'show-ref' => '--head');
+my $b_local_head_ref;
+( $b_local_head_ref ) = grep(/refs\/heads\/$current_branch/, split(/\n/, $output));
+my $b_local_head = (split(/\s+/, $b_local_head_ref))[0];
+#print "found ref for $current_branch $b_local_head\n";
+
+my $b_head_ref;
+( $b_head_ref ) = grep(/refs\/remotes\/origin\/$current_branch/, split(/\n/, $output));
+my $b_head = (split(/\s+/, $b_head_ref))[0];
+#print "found ref for remotes/origin/$current_branch $b_head\n";
+
+if ($b_local_head ne $b_head) {
+	print "There is un-pushed local commit for $current_branch\n";
+}
+
+my $dev_head_ref;
+( $dev_head_ref ) = grep(/refs\/remotes\/origin\/develop/, split(/\n/, $output));
+my $dev_head = (split(/\s+/, $dev_head_ref))[0];
+#print "found ref for remotes/origin/develop $dev_head\n";
+
+my $iter;
+try {
+	$iter = $r->log("--branches=$current_remote_branch", $b_head);
+} catch {
+	die "Can't git log --branches=$current_remote_branch\n";
+};
+my $log = $iter->next();
+my $current_branch_last_commit         = $log->{commit};
+my $current_branch_last_commit_gm_time = $log->{committer_gmtime};
+#print "Last commit for remotes/origin/$current_branch $current_branch_last_commit\n";
+#print "Last commit gmtime for remotes/origin/$current_branch $current_branch_last_commit_gm_time\n";
+
+$iter = $r->log("--branches=origin/develop", $dev_head);
+
+while ( my $log = $iter->next() ) {
+	if ($log->{commit} eq $current_branch_last_commit ) {
+		print "$current_branch \e[01;31mWAS\e[0m merged with develop\n";
+		exit;
+	} else {
+		
+	}
+	last if ($log->{committer_gmtime} < $current_branch_last_commit_gm_time);
+}
+print "$current_branch was \e[01;31mNOT\e[0m merged with develop\n";
+

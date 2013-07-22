@@ -1,0 +1,38 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+
+use Cwd;
+use Git::Repository;
+use Try::Tiny;
+use Data::Dumper;
+
+sub reset_branch {
+	my ($r, $b) = @_;
+	my $output = $r->run( checkout => $b );
+	print "$output\n";
+}
+
+my $dir = getcwd;
+my $r = Git::Repository->new( git_dir => "$dir/.git" );
+
+my $output;
+my $current_branch;
+
+$output = $r->run( status => '' );
+print "$output\n";
+
+if ($output =~ /On branch\s+(\S+)\s+/) {
+	$current_branch = $1;
+}
+
+reset_branch($r, 'develop');
+
+$output = $r->run( fetch => 'origin');
+print "$output\n";
+
+$output = $r->run( pull => 'origin', 'develop');
+print "$output\n";
+
+reset_branch($r, $current_branch) if $current_branch;
